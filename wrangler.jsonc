@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "quiet-sea-fff1",
+	"name": "no-cheating",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-05-19",
 	"compatibility_flags": [
@@ -30,6 +30,14 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
+	,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "game-on-db",
+			"database_id": "506d6804-7a32-4ccb-99bc-7272578c5e14"
+		}
+	]
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
