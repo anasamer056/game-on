@@ -240,6 +240,11 @@
             white-space: pre-wrap;
             word-break: break-word;
         }
+        
+        /* Ensure friend override still works */
+        .game-card .score-badge[style*="color: var(--accent)"] {
+            color: var(--accent) !important;
+        }
 
         .score-waiting {
             display: flex;
@@ -358,6 +363,12 @@
             white-space: pre-wrap;
             word-break: break-word;
             line-height: 1.4;
+        }
+
+        .score-highlight {
+            color: #ffffff;
+            font-weight: 800;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
         }
 
         .history-daily-summary {
@@ -676,15 +687,33 @@
             loadHistory();
         }
 
-        function openModal(gameId) {
+        function openModal(gameId, existingResult = '') {
             activeGame = GAMES.find(g => g.id === gameId);
-            document.getElementById('modal-game-name').textContent = `Submit ${activeGame.name} Score`;
-            document.getElementById('score-result').value = '';
+            document.getElementById('modal-game-name').textContent = existingResult ? `Edit ${activeGame.name} Score` : `Submit ${activeGame.name} Score`;
+            document.getElementById('score-result').value = existingResult;
             document.getElementById('score-modal').classList.remove('hidden');
         }
 
         function closeModal() {
             document.getElementById('score-modal').classList.add('hidden');
+        }
+
+        // UI Formatting
+        function formatScore(text) {
+            if (!text) return '';
+            
+            // Regex for time: M:SS, MM:SS, H:MM:SS
+            const timeRegex = /(\d+:\d+(?::\d+)?)/;
+            
+            const lines = text.split('\n');
+            const firstLine = lines[0];
+            
+            // Highlight time in the first line if found
+            const highlightedFirstLine = firstLine.replace(timeRegex, '<span class="score-highlight">$1</span>');
+            
+            if (lines.length === 1) return highlightedFirstLine;
+            
+            return highlightedFirstLine + '\n' + lines.slice(1).join('\n');
         }
 
         // Data Loading
@@ -723,7 +752,14 @@
                 
                 let myContent = '';
                 if (gameData.mine) {
-                    myContent = `<div class="score-badge">${gameData.mine.result}</div>`;
+                    // Escape single quotes in result for the onclick handler
+                    const escapedResult = gameData.mine.result.replace(/'/g, "\\'");
+                    myContent = `
+                        <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                            <div class="score-badge" style="color: var(--success)">${formatScore(gameData.mine.result)}</div>
+                            <button class="btn-ghost" style="font-size: 0.7rem; padding: 4px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; width: 100%;" onclick="openModal('${game.id}', '${escapedResult}')">✎ Edit Score</button>
+                        </div>
+                    `;
                 } else {
                     myContent = `<button class="btn-primary" onclick="openModal('${game.id}')">Submit Score</button>`;
                 }
@@ -732,7 +768,7 @@
                 let statusHtml = '';
 
                 if (gameData.theirs.submitted) {
-                    friendContent = `<div class="score-badge" style="background: rgba(34, 211, 238, 0.1); color: var(--accent);">${gameData.theirs.result}</div>`;
+                    friendContent = `<div class="score-badge" style="background: rgba(34, 211, 238, 0.1); color: var(--accent);">${formatScore(gameData.theirs.result)}</div>`;
                     const gameWinner = determineGameWinner(gameData.mine ? gameData.mine.result : null, gameData.theirs.result);
                     if (gameWinner === 'mine') {
                         myWins++;
@@ -865,8 +901,8 @@
                     const gameData = history[date][game.id];
                     if (!gameData.mine && !gameData.theirs.submitted) return;
 
-                    const myRes = gameData.mine ? gameData.mine.result : '—';
-                    const theirRes = gameData.theirs.submitted ? gameData.theirs.result : '🔒';
+                    const myRes = gameData.mine ? formatScore(gameData.mine.result) : '—';
+                    const theirRes = gameData.theirs.submitted ? formatScore(gameData.theirs.result) : '🔒';
 
                     let statusText = '';
                     let myClass = '';

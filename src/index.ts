@@ -131,14 +131,12 @@ export default {
 			}
 
 			try {
-				await env.DB.prepare('INSERT INTO scores (user_id, game, score_date, result) VALUES (?, ?, ?, ?)')
+				// Use INSERT OR REPLACE to allow editing existing scores
+				await env.DB.prepare('INSERT OR REPLACE INTO scores (user_id, game, score_date, result, submitted_at) VALUES (?, ?, ?, ?, datetime(\'now\'))')
 					.bind(auth.userId, game, score_date, result)
 					.run();
 				return new Response(JSON.stringify({ success: true }), { status: 201 });
 			} catch (e: any) {
-				if (e.message.includes('UNIQUE constraint failed')) {
-					return new Response(JSON.stringify({ error: 'Score already submitted for this date' }), { status: 400 });
-				}
 				return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
 			}
 		}
