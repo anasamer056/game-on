@@ -55,7 +55,7 @@
         .text-accent { color: var(--accent); }
 
         /* Buttons */
-        button {
+        button, .btn {
             font-family: inherit;
             cursor: pointer;
             border: none;
@@ -63,6 +63,11 @@
             padding: 10px 20px;
             font-weight: 600;
             transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            font-size: 0.9rem;
         }
 
         .btn-primary {
@@ -469,7 +474,10 @@
     <div id="score-modal" class="modal-overlay hidden">
         <div class="modal-content fade-in">
             <div class="modal-close" onclick="closeModal()">&times;</div>
-            <h2 id="modal-game-name">Submit Score</h2>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                <h2 id="modal-game-name" style="margin-bottom: 0;">Submit Score</h2>
+                <a id="modal-play-link" href="#" target="_blank" class="btn-ghost" style="padding: 4px 8px; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--accent);">Play Game ↗</a>
+            </div>
             <div class="score-section">
                 <label class="score-label">Your Result</label>
                 <div class="paste-btn-container">
@@ -485,10 +493,10 @@
         let currentUser = null;
         let activeGame = null;
         const GAMES = [
-            { id: 'tango', name: 'Tango', icon: '🟡' },
-            { id: 'zip', name: 'Zip', icon: '🔗' },
-            { id: 'queens', name: 'Queens', icon: '👑' },
-            { id: 'patches', name: 'Patches', icon: '🧩' }
+            { id: 'tango', name: 'Tango', icon: '🟡', url: 'https://www.linkedin.com/games/tango' },
+            { id: 'zip', name: 'Zip', icon: '🔗', url: 'https://www.linkedin.com/games/zip' },
+            { id: 'queens', name: 'Queens', icon: '👑', url: 'https://www.linkedin.com/games/queens' },
+            { id: 'patches', name: 'Patches', icon: '🧩', url: 'https://www.linkedin.com/games/patches' }
         ];
 
         // Auth Tab Toggle
@@ -690,6 +698,7 @@
         function openModal(gameId, existingResult = '') {
             activeGame = GAMES.find(g => g.id === gameId);
             document.getElementById('modal-game-name').textContent = existingResult ? `Edit ${activeGame.name} Score` : `Submit ${activeGame.name} Score`;
+            document.getElementById('modal-play-link').href = activeGame.url;
             document.getElementById('score-result').value = existingResult;
             document.getElementById('score-modal').classList.remove('hidden');
         }
@@ -793,6 +802,9 @@
                         </div>
                         ${statusHtml}
                     </div>
+                    <a href="${game.url}" target="_blank" class="btn btn-primary">
+                        Play Game ↗
+                    </a>
                     <div class="score-section">
                         <div class="score-label">${myName}</div>
                         ${myContent}
