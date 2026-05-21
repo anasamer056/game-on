@@ -40,7 +40,7 @@
             width: 100%;
             max-width: 600px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 20px 20px 80px 20px;
             flex: 1;
         }
 
@@ -147,7 +147,7 @@
             margin-bottom: 20px;
         }
 
-        .logo { font-size: 1.5rem; font-weight: 700; }
+        .logo { font-size: 1.25rem; font-weight: 700; }
 
         /* Auth Screen */
         .auth-card {
@@ -439,9 +439,10 @@
         <div id="dashboard-view" class="hidden fade-in">
             <header>
                 <div class="logo">Game On ⚡</div>
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <span id="user-display" style="font-weight: 600;"></span>
-                    <button class="btn-ghost" onclick="handleLogout()">Logout</button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button class="btn-ghost" style="padding: 6px 10px; font-size: 0.8rem;" onclick="showHistory()">History</button>
+                    <button class="btn-ghost" style="padding: 6px 10px; font-size: 0.8rem;" onclick="showStats()">Stats</button>
+                    <button class="btn-ghost" style="padding: 6px 10px; font-size: 0.8rem; color: var(--error);" onclick="handleLogout()">Logout</button>
                 </div>
             </header>
 
@@ -451,10 +452,6 @@
             <div class="game-grid" id="game-cards">
                 <!-- Game cards injected by JS -->
             </div>
-
-            <footer>
-                <button class="btn-outline" onclick="showHistory()">View History</button>
-            </footer>
         </div>
 
         <!-- History View -->
@@ -466,6 +463,24 @@
 
             <div id="history-list">
                 <!-- History items injected by JS -->
+            </div>
+        </div>
+
+        <!-- Stats View -->
+        <div id="stats-view" class="hidden fade-in">
+            <header>
+                <button class="btn-ghost" onclick="showDashboard()">← Back</button>
+                <div class="logo">Statistics</div>
+            </header>
+
+            <div class="auth-toggle" style="margin-bottom: 24px;">
+                <div id="stats-filter-all" class="auth-toggle-btn active" onclick="loadStats('all')">All Time</div>
+                <div id="stats-filter-month" class="auth-toggle-btn" onclick="loadStats('month')">This Month</div>
+                <div id="stats-filter-week" class="auth-toggle-btn" onclick="loadStats('week')">This Week</div>
+            </div>
+
+            <div id="stats-content">
+                <!-- Stats injected by JS -->
             </div>
         </div>
     </div>
@@ -686,13 +701,275 @@
             document.getElementById('auth-view').classList.add('hidden');
             document.getElementById('dashboard-view').classList.remove('hidden');
             document.getElementById('history-view').classList.add('hidden');
+            document.getElementById('stats-view').classList.add('hidden');
+            document.getElementById('stats-content').innerHTML = '';
             loadDashboard();
         }
 
         function showHistory() {
             document.getElementById('dashboard-view').classList.add('hidden');
             document.getElementById('history-view').classList.remove('hidden');
+            document.getElementById('stats-view').classList.add('hidden');
             loadHistory();
+        }
+
+        function showStats() {
+            document.getElementById('dashboard-view').classList.add('hidden');
+            document.getElementById('history-view').classList.add('hidden');
+            document.getElementById('stats-view').classList.remove('hidden');
+            loadStats('all');
+        }
+
+        function formatTime(seconds) {
+            if (seconds === null || isNaN(seconds)) return '—';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.round(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        async function loadStats(filter) {
+            // Update UI filter tabs
+            ['all', 'month', 'week'].forEach(f => {
+                document.getElementById(`stats-filter-${f}`).classList.toggle('active', f === filter);
+            });
+
+            const content = document.getElementById('stats-content');
+            content.innerHTML = '<p style="text-align: center; color: var(--text-dim);">Calculating stats...</p>';
+
+            // We use the history endpoint to get all data and filter locally
+            const res = await apiFetch('/api/history');
+            if (!res) return;
+            const data = await res.json();
+            const history = data.days;
+            
+            const me = data.users.find(u => u.isMe);
+            const friend = data.users.find(u => !u.isMe);
+            const myName = me ? me.username : 'You';
+            const friendName = friend ? friend.username : 'Friend';
+
+            // Filter logic (Respecting 10 AM Cairo reset)
+            const now = new Date();
+            
+            // Helper to get 10 AM Cairo on a specific date
+            const getCairo10AM = (d) => {
+                const date = new Date(d);
+                // We simplify by using local time as a proxy, 
+                // but since the game date logic uses Cairo, we align stats here.
+                date.setHours(10, 0, 0, 0);
+                return date;
+            };
+
+            let cutoffDate = null;
+
+            if (filter === 'month') {
+                const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                cutoffDate = getCairo10AM(firstOfMonth);
+                // If it's the 1st but before 10 AM, we should ideally go to the previous month,
+                // but usually "This Month" implies the current calendar month's cycle.
+            } else if (filter === 'week') {
+                const dayOfWeek = now.getDay(); // 0-Sun, 6-Sat
+                // Days since most recent Saturday
+                let daysSinceSat = (dayOfWeek + 1) % 7; 
+                
+                const satDate = new Date(now);
+                satDate.setDate(now.getDate() - daysSinceSat);
+                cutoffDate = getCairo10AM(satDate);
+
+                // Special case: If today is Saturday and it's before 10 AM, 
+                // the "Current Week" cycle actually started last Saturday.
+                if (dayOfWeek === 6) {
+                    const cairoTime = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'Africa/Cairo',
+                        hour: 'numeric',
+                        hour12: false
+                    }).format(now);
+                    if (parseInt(cairoTime) < 10) {
+                        cutoffDate.setDate(cutoffDate.getDate() - 7);
+                    }
+                }
+            }
+
+            // Convert cutoff to YYYY-MM-DD for string comparison with history keys
+            const cutoffStr = cutoffDate ? new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Africa/Cairo',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(cutoffDate) : null;
+
+            let stats = {
+                dailyWins: { me: 0, friend: 0, ties: 0 },
+                games: {}, // breakdown by game
+            };
+
+            GAMES.forEach(g => {
+                stats.games[g.id] = { 
+                    wins: { me: 0, friend: 0, ties: 0 }, 
+                    times: { me: [], friend: [] },
+                    diffs: [],
+                    records: { 
+                        me: { score: null, date: null }, 
+                        friend: { score: null, date: null } 
+                    }
+                };
+            });
+
+            const dates = Object.keys(history).sort();
+            dates.forEach(dateStr => {
+                const day = history[dateStr];
+                let dayWins = { me: 0, friend: 0, completed: 0 };
+
+                GAMES.forEach(game => {
+                    const gData = day[game.id];
+                    if (!gData) return;
+
+                    // Apply filter
+                    if (filter !== 'all' && dateStr < cutoffStr) return;
+
+                    // Parse times for records
+                    if (gData.mine) {
+                        const mySec = parseTimeToSeconds(gData.mine.result);
+                        if (mySec !== null) {
+                            if (stats.games[game.id].records.me.score === null || mySec < stats.games[game.id].records.me.score) {
+                                stats.games[game.id].records.me.score = mySec;
+                                stats.games[game.id].records.me.date = dateStr;
+                            }
+                        }
+                    }
+                    if (gData.theirs.submitted) {
+                        const theirSec = parseTimeToSeconds(gData.theirs.result);
+                        if (theirSec !== null) {
+                            if (stats.games[game.id].records.friend.score === null || theirSec < stats.games[game.id].records.friend.score) {
+                                stats.games[game.id].records.friend.score = theirSec;
+                                stats.games[game.id].records.friend.date = dateStr;
+                            }
+                        }
+                    }
+
+                    if (!gData.mine || !gData.theirs.submitted) return;
+
+                    const mySec = parseTimeToSeconds(gData.mine.result);
+                    const theirSec = parseTimeToSeconds(gData.theirs.result);
+
+                    if (mySec !== null && theirSec !== null) {
+                        stats.games[game.id].times.me.push(mySec);
+                        stats.games[game.id].times.friend.push(theirSec);
+                        stats.games[game.id].diffs.push(mySec - theirSec);
+                    }
+
+                    const winner = determineGameWinner(gData.mine.result, gData.theirs.result);
+                    if (winner === 'mine') {
+                        stats.games[game.id].wins.me++;
+                        dayWins.me++;
+                    } else if (winner === 'theirs') {
+                        stats.games[game.id].wins.friend++;
+                        dayWins.friend++;
+                    } else if (winner === 'tie') {
+                        stats.games[game.id].wins.ties++;
+                    }
+                    dayWins.completed++;
+                });
+
+                // Calculate daily winner only if within filter
+                if (filter === 'all' || dateStr >= cutoffStr) {
+                    if (dayWins.completed === 4) {
+                        if (dayWins.me > dayWins.friend) stats.dailyWins.me++;
+                        else if (dayWins.friend > dayWins.me) stats.dailyWins.friend++;
+                        else stats.dailyWins.ties++;
+                    }
+                }
+            });
+
+            // Build HTML
+            let html = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                    <div class="game-card" style="text-align: center; padding: 15px;">
+                        <div class="score-label">${myName}</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--success);">${stats.dailyWins.me}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-dim);">DAILY WINS</div>
+                    </div>
+                    <div class="game-card" style="text-align: center; padding: 15px;">
+                        <div class="score-label">TIES</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.dailyWins.ties}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-dim);">DAILY DRAWS</div>
+                    </div>
+                    <div class="game-card" style="text-align: center; padding: 15px;">
+                        <div class="score-label">${friendName}</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--error);">${stats.dailyWins.friend}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-dim);">DAILY WINS</div>
+                    </div>
+                </div>
+                <p style="text-align: center; font-size: 0.75rem; color: var(--text-dim); margin-bottom: 24px;">(Daily wins count days where all 4 games were played)</p>
+
+                <h2 style="font-size: 1.1rem; margin-bottom: 16px;">Game Breakdown</h2>
+            `;
+
+            GAMES.forEach(game => {
+                const gStats = stats.games[game.id];
+                const myAvg = gStats.times.me.length ? gStats.times.me.reduce((a, b) => a + b) / gStats.times.me.length : null;
+                const theirAvg = gStats.times.friend.length ? gStats.times.friend.reduce((a, b) => a + b) / gStats.times.friend.length : null;
+                const avgDiff = gStats.diffs.length ? gStats.diffs.reduce((a, b) => a + b) / gStats.diffs.length : 0;
+
+                html += `
+                    <div style="margin-bottom: 32px;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding-left: 4px;">
+                            <span style="font-size: 1.4rem;">${game.icon}</span>
+                            <h2 style="font-size: 1.2rem; margin-bottom: 0;">${game.name}</h2>
+                            <span style="font-size: 0.8rem; color: var(--text-dim); margin-left: auto;">${gStats.wins.me + gStats.wins.friend + gStats.wins.ties} games</span>
+                        </div>
+
+                        <!-- Mini Win Summary -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                            <div class="game-card" style="text-align: center; padding: 10px; border-color: rgba(74, 222, 128, 0.2);">
+                                <div class="score-label" style="font-size: 0.6rem;">${myName}</div>
+                                <div style="font-size: 1.1rem; font-weight: 700; color: var(--success);">${gStats.wins.me}</div>
+                            </div>
+                            <div class="game-card" style="text-align: center; padding: 10px; border-color: rgba(34, 211, 238, 0.2);">
+                                <div class="score-label" style="font-size: 0.6rem;">TIES</div>
+                                <div style="font-size: 1.1rem; font-weight: 700; color: var(--accent);">${gStats.wins.ties}</div>
+                            </div>
+                            <div class="game-card" style="text-align: center; padding: 10px; border-color: rgba(248, 113, 113, 0.2);">
+                                <div class="score-label" style="font-size: 0.6rem;">${friendName}</div>
+                                <div style="font-size: 1.1rem; font-weight: 700; color: var(--error);">${gStats.wins.friend}</div>
+                            </div>
+                        </div>
+
+                        <!-- Mini Averages Summary -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                            <div class="game-card" style="text-align: center; padding: 8px; background: transparent; border-style: dashed;">
+                                <div class="score-label" style="font-size: 0.55rem;">MY AVG</div>
+                                <div style="font-size: 0.85rem; font-weight: 600;">${formatTime(myAvg)}</div>
+                            </div>
+                            <div class="game-card" style="text-align: center; padding: 8px; background: rgba(255,255,255,0.02); border-color: var(--border);">
+                                <div class="score-label" style="font-size: 0.55rem;">AVG DIFF</div>
+                                <div style="font-size: 0.85rem; font-weight: 700; color: ${avgDiff < 0 ? 'var(--success)' : avgDiff > 0 ? 'var(--error)' : 'var(--text-main)'};">
+                                    ${avgDiff < 0 ? '-' : avgDiff > 0 ? '+' : ''}${formatTime(Math.abs(avgDiff))}
+                                </div>
+                            </div>
+                            <div class="game-card" style="text-align: center; padding: 8px; background: transparent; border-style: dashed;">
+                                <div class="score-label" style="font-size: 0.55rem;">THEIR AVG</div>
+                                <div style="font-size: 0.85rem; font-weight: 600;">${formatTime(theirAvg)}</div>
+                            </div>
+                        </div>
+
+                        <!-- Personal Records Summary -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div class="game-card" style="text-align: center; padding: 8px; border-color: rgba(74, 222, 128, 0.4); background: linear-gradient(135deg, rgba(74, 222, 128, 0.05), transparent);">
+                                <div class="score-label" style="font-size: 0.55rem; color: var(--success); text-transform: uppercase;">${myName}'S PERSONAL RECORD</div>
+                                <div style="font-size: 0.9rem; font-weight: 800; color: var(--success);">${formatTime(gStats.records.me.score)}</div>
+                                <div style="font-size: 0.6rem; color: var(--text-dim); margin-top: 2px;">${gStats.records.me.date ? new Date(gStats.records.me.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</div>
+                            </div>
+                            <div class="game-card" style="text-align: center; padding: 8px; border-color: rgba(248, 113, 113, 0.4); background: linear-gradient(135deg, rgba(248, 113, 113, 0.05), transparent);">
+                                <div class="score-label" style="font-size: 0.55rem; color: var(--error); text-transform: uppercase;">${friendName}'S PERSONAL RECORD</div>
+                                <div style="font-size: 0.9rem; font-weight: 800; color: var(--error);">${formatTime(gStats.records.friend.score)}</div>
+                                <div style="font-size: 0.6rem; color: var(--text-dim); margin-top: 2px;">${gStats.records.friend.date ? new Date(gStats.records.friend.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            content.innerHTML = html;
         }
 
         function openModal(gameId, existingResult = '') {
@@ -708,6 +985,21 @@
         }
 
         // UI Formatting
+        function simplifyScore(text) {
+            if (!text) return '—';
+            // Regex for time: M:SS, MM:SS, H:MM:SS
+            const timeRegex = /(\d+:\d+(?::\d+)?)/;
+            const match = text.match(timeRegex);
+            if (match) return match[1];
+
+            // For Patches, might be "X moves"
+            const movesMatch = text.match(/(\d+)\s*moves/i);
+            if (movesMatch) return movesMatch[1] + ' moves';
+
+            // Fallback to first line if no specific match
+            return text.split('\n')[0];
+        }
+
         function formatScore(text) {
             if (!text) return '';
             
@@ -734,7 +1026,6 @@
             const displayDate = gameDateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             
             document.getElementById('current-date').innerHTML = `${displayDate} <span style="font-size: 0.8rem; opacity: 0.7;">(Reset at 10 AM Cairo)</span>`;
-            document.getElementById('user-display').textContent = localStorage.getItem('username');
 
             const res = await apiFetch(`/api/scores?date=${dateStr}`);
             if (!res) return;
@@ -821,13 +1112,13 @@
             if (gamesCompleted === 4) {
                 dailyWinnerEl.classList.remove('hidden');
                 if (myWins > theirWins) {
-                    dailyWinnerEl.textContent = `🎉 ${myName} is the Daily Winner! (${myWins}-${theirWins})`;
+                    dailyWinnerEl.textContent = `🎉 ${myName} howa el papa ennaharda! (${myWins}-${theirWins})`;
                     dailyWinnerEl.style.color = 'var(--success)';
                 } else if (theirWins > myWins) {
-                    dailyWinnerEl.textContent = `💀 ${friendName} is the Daily Winner... (${theirWins}-${myWins})`;
+                    dailyWinnerEl.textContent = `💀 ${friendName} howa el papa ennaharda... (${theirWins}-${myWins})`;
                     dailyWinnerEl.style.color = 'var(--error)';
                 } else {
-                    dailyWinnerEl.textContent = `🤝 It's a Daily Tie! (${myWins}-${theirWins})`;
+                    dailyWinnerEl.textContent = `🤝 Ta3adol ya sh2ee2! (${myWins}-${theirWins})`;
                     dailyWinnerEl.style.color = 'var(--accent)';
                 }
             } else {
@@ -913,10 +1204,10 @@
                     const gameData = history[date][game.id];
                     if (!gameData.mine && !gameData.theirs.submitted) return;
 
-                    const myRes = gameData.mine ? formatScore(gameData.mine.result) : '—';
-                    const theirRes = gameData.theirs.submitted ? formatScore(gameData.theirs.result) : '🔒';
+                    const myRes = gameData.mine ? simplifyScore(gameData.mine.result) : '—';
+                    const theirRes = gameData.theirs.submitted ? simplifyScore(gameData.theirs.result) : '🔒';
 
-                    let statusText = '';
+                    let winnerName = '';
                     let myClass = '';
                     let theirClass = '';
 
@@ -924,16 +1215,16 @@
                         const gameWinner = determineGameWinner(gameData.mine ? gameData.mine.result : null, gameData.theirs.result);
                         if (gameWinner === 'mine') {
                             myDailyWins++;
-                            statusText = 'You won! Waddiii';
+                            winnerName = myName;
                             myClass = 'winner-cell';
                             theirClass = 'loser-cell';
                         } else if (gameWinner === 'theirs') {
                             theirDailyWins++;
-                            statusText = 'You lost! Ya loser.';
+                            winnerName = friendName;
                             myClass = 'loser-cell';
                             theirClass = 'winner-cell';
                         } else if (gameWinner === 'tie') {
-                            statusText = 'We tied! Darb naaar';
+                            winnerName = 'Tie';
                         }
                         gamesCompleted++;
                     }
@@ -942,7 +1233,7 @@
                         <div class="history-row">
                             <div class="history-cell game-name">
                                 <div>${game.icon} ${game.name}</div>
-                                <div class="history-game-status-mini" style="color: ${statusText.includes('won') ? 'var(--success)' : statusText.includes('lost') ? 'var(--error)' : 'var(--accent)'}">${statusText}</div>
+                                <div class="history-game-status-mini" style="color: ${winnerName === myName ? 'var(--success)' : winnerName === friendName ? 'var(--error)' : 'var(--accent)'}">${winnerName}</div>
                             </div>
                             <div class="history-cell score ${myClass}">
                                 <div class="history-player-label">${myName}</div>
@@ -963,13 +1254,13 @@
                     let summaryText = '';
                     let summaryColor = '';
                     if (myDailyWins > theirDailyWins) {
-                        summaryText = `🎉 ${myName} is the Daily Winner! (${myDailyWins}-${theirDailyWins})`;
+                        summaryText = `${myName} won - (${myDailyWins}-${theirDailyWins})`;
                         summaryColor = 'var(--success)';
                     } else if (theirDailyWins > myDailyWins) {
-                        summaryText = `💀 ${friendName} is the Daily Winner... (${theirDailyWins}-${myDailyWins})`;
+                        summaryText = `${friendName} won - (${theirDailyWins}-${myDailyWins})`;
                         summaryColor = 'var(--error)';
                     } else {
-                        summaryText = `🤝 It's a Daily Tie! (${myDailyWins}-${theirDailyWins})`;
+                        summaryText = `Tie - (${myDailyWins}-${theirDailyWins})`;
                         summaryColor = 'var(--accent)';
                     }
                     summaryHtml = `<div class="history-daily-summary" style="color: ${summaryColor}">${summaryText}</div>`;
